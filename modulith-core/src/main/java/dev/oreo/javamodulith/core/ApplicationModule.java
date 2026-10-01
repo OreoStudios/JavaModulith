@@ -21,5 +21,8 @@ import java.lang.annotation.Target;
 public @interface ApplicationModule {
     /** Optional override of the package's last segment. */
     String value() default "";
+    /** Spring Modulith-style dependency selectors. */
+    String[] allowedDependencies() default {};
+    /** Legacy alias retained for compatibility with type-based modules. */
     String[] dependencies() default {};
 }

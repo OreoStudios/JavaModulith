@@ -110,10 +110,14 @@ public final class ModuleArchitectureProcessor extends AbstractProcessor {
             if (!id.matches("[a-zA-Z][a-zA-Z0-9_.-]*"))
                 error(element, "Invalid module ID: " + id);
 
-            Entry existing = modules.putIfAbsent(id, new Entry(id, List.of(annotation.dependencies()), element));
+            if (annotation.allowedDependencies().length != 0 && annotation.dependencies().length != 0)
+                error(element, "Use either allowedDependencies or legacy dependencies, not both");
+            List<String> dependencies = annotation.allowedDependencies().length == 0
+                    ? List.of(annotation.dependencies()) : List.of(annotation.allowedDependencies());
+            Entry existing = modules.putIfAbsent(id, new Entry(id, dependencies, element));
             if (existing != null) error(element, "Duplicate explicit module ID: " + id);
 
-            for (String dependency : annotation.dependencies()) {
+            for (String dependency : dependencies) {
                 if (!dependency.matches("[a-zA-Z][a-zA-Z0-9_.-]*(::[a-zA-Z][a-zA-Z0-9_.-]*)?"))
                     error(element, "Invalid dependency selector: " + dependency);
                 String owner = dependency.split("::", 2)[0];

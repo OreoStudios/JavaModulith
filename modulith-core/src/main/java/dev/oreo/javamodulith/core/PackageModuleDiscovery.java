@@ -69,7 +69,13 @@ public final class PackageModuleDiscovery {
             Package pkg = loadPackage(packageName, loader);
             ApplicationModule metadata = pkg == null ? null : pkg.getAnnotation(ApplicationModule.class);
             String id = metadata != null && !metadata.value().isBlank() ? metadata.value() : child;
-            List<String> dependencies = metadata == null ? List.of() : List.of(metadata.dependencies());
+            List<String> dependencies = List.of();
+            if (metadata != null) {
+                if (metadata.allowedDependencies().length != 0 && metadata.dependencies().length != 0)
+                    throw new ModulithException("Use either allowedDependencies or legacy dependencies on " + packageName);
+                dependencies = metadata.allowedDependencies().length == 0
+                        ? List.of(metadata.dependencies()) : List.of(metadata.allowedDependencies());
+            }
 
             List<Class<? extends ModulithModule>> lifecycleTypes = new ArrayList<>();
             for (String binaryName : byDirectChild.get(child)) {

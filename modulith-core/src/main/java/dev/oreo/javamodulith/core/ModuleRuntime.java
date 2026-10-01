@@ -26,6 +26,8 @@ public final class ModuleRuntime implements AutoCloseable {
         order.forEach(d -> states.put(d.id(), ModuleState.DISCOVERED));
     }
     public static Builder builder() { return new Builder(); }
+    /** Spring-style convenience bootstrap: ModuleRuntime.scan("com.example.app").start(). */
+    public static Builder scan(String basePackage) { return builder().basePackage(basePackage); }
     public synchronized ModuleRuntime start() {
         if (started) return this;
         if (stopped) throw new ModulithException("ModuleRuntime cannot restart after stop(); build a new instance");
@@ -160,7 +162,11 @@ public final class ModuleRuntime implements AutoCloseable {
             ApplicationModule annotation=type.getAnnotation(ApplicationModule.class);
             if(annotation==null) throw new ModulithException("Missing @ApplicationModule: "+type.getName());
             String id = annotation.value().isBlank() ? type.getSimpleName() : annotation.value();
-            return new ModuleDescriptor(id,List.of(annotation.dependencies()),type);
+            if (annotation.allowedDependencies().length != 0 && annotation.dependencies().length != 0)
+                throw new ModulithException("Use either allowedDependencies or legacy dependencies on " + type.getName());
+            List<String> dependencies = annotation.allowedDependencies().length == 0
+                    ? List.of(annotation.dependencies()) : List.of(annotation.allowedDependencies());
+            return new ModuleDescriptor(id,dependencies,type);
         }
         static ModulithModule create(Class<? extends ModulithModule> type) {
             try {

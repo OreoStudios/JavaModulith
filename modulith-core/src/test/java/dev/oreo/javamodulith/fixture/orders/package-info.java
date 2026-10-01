@@ -1,5 +1,5 @@
 @dev.oreo.javamodulith.core.ApplicationModule(
     value = "orders",
-    dependencies = {"billing::payments"}
+    allowedDependencies = {"billing::payments"}
 )
 package dev.oreo.javamodulith.fixture.orders;
