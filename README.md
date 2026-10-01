@@ -223,11 +223,11 @@ The core JDBC functionality is covered by SQLite tests on every build, plus opti
 
 ## Testing
 
-The `modulith-test` module still supports the legacy class-based target API during the package-first transition:
+The `modulith-test` module supports Spring-style targeted package testing: only the requested module and its transitive dependencies start, so unrelated packages are not initialized.
 
 ```java
 try (var harness = ModuleTestHarness.builder()
-        .modules(List.of(BillingModule.class, OrdersModule.class))
+        .basePackage("com.example.shop")
         .target("orders")
         .start()) {
     harness.assertRunning("billing")
@@ -235,6 +235,8 @@ try (var harness = ModuleTestHarness.builder()
            .assertStartupOrder("billing", "orders");
 }
 ```
+
+The legacy class-based `modules(List.of(...))` test harness remains available. You can also select a dependency closure directly with `ModuleRuntime.builder().basePackage("com.example.shop").targetModule("orders").start()`.
 
 ```bash
 gradle clean build
