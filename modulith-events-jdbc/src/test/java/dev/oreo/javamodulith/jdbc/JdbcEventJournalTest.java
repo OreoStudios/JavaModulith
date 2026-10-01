@@ -53,7 +53,7 @@ class JdbcEventJournalTest {
         EventJournal journal = sqlite();
         try (ModuleRuntime runtime = ModuleRuntime.builder().eventJournal(journal).start()) {
             var received = new java.util.concurrent.atomic.AtomicInteger();
-            runtime.events().subscribe(String.class, received::incrementAndGet);
+            runtime.events().subscribe(String.class, message -> received.incrementAndGet());
             assertEquals(1, runtime.events().publish("hello").completedCount());
             assertEquals(1, received.get());
             assertEquals(0, runtime.diagnostics().incompletePublications());
