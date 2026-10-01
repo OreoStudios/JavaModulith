@@ -7,7 +7,7 @@ import java.util.logging.*;
 /** Platform-independent application orchestrator. Explicit module registration, deterministic lifecycle. */
 public final class ModuleRuntime implements AutoCloseable {
     private final List<ModuleDescriptor> order;
-    private final Map<Class<? extends ModulithModule>, Supplier<? extends ModulithModule>> factories;
+    private final Map<String, Supplier<? extends ModulithModule>> factories;
     private final Map<Class<?>, Object> external;
     private final Logger logger;
     private final EventJournal journal;
@@ -19,7 +19,7 @@ public final class ModuleRuntime implements AutoCloseable {
     private boolean stopped;
 
     private ModuleRuntime(List<ModuleDescriptor> order,
-        Map<Class<? extends ModulithModule>, Supplier<? extends ModulithModule>> factories,
+        Map<String, Supplier<? extends ModulithModule>> factories,
         Map<Class<?>, Object> external, Logger logger, Executor executor, EventJournal journal) {
         this.order=order; this.factories=Map.copyOf(factories); this.external=Map.copyOf(external);
         this.logger=logger; this.journal=journal; this.events=new EventBus(executor,journal);
@@ -42,11 +42,11 @@ public final class ModuleRuntime implements AutoCloseable {
     private void startOne(ModuleDescriptor descriptor) {
         states.put(descriptor.id(), ModuleState.STARTING);
         LifecycleScope scope = new LifecycleScope();
-        ModuleServices moduleServices = new ModuleServices(descriptor.id(), descriptor.parsedDependencies(), services);
+        ModuleServices moduleServices = new ModuleServices(descriptor.id(), descriptor.parsedDependencies(), descriptor.modulePackage(), services);
         ModuleContext context = new ModuleContext(descriptor.id(), moduleServices, events, scope, external,
             Logger.getLogger(logger.getName()+"."+descriptor.id()));
         try {
-            ModulithModule instance = Objects.requireNonNull(factories.get(descriptor.implementation()).get(), "module factory returned null");
+            ModulithModule instance = Objects.requireNonNull(factories.get(descriptor.id()).get(), "module factory returned null");
             // Ensure services, scope, and listener registrations are rolled back if start() fails.
             instance.start(context);
             context.listen(instance);
@@ -102,6 +102,7 @@ public final class ModuleRuntime implements AutoCloseable {
 
     public static final class Builder {
         private final LinkedHashMap<Class<? extends ModulithModule>,Supplier<? extends ModulithModule>> factories = new LinkedHashMap<>();
+        private final LinkedHashMap<String,PackageModuleDiscovery.DiscoveredModule> discovered = new LinkedHashMap<>();
         private final Map<Class<?>,Object> external = new LinkedHashMap<>();
         private Logger logger=Logger.getLogger("JavaModulith");
         private Executor executor=ForkJoinPool.commonPool();
@@ -113,6 +114,22 @@ public final class ModuleRuntime implements AutoCloseable {
             return this;
         }
         public Builder modules(Collection<Class<? extends ModulithModule>> types) { types.forEach(this::module); return this; }
+
+        /**
+         * Discover direct child packages of the application base package, as in
+         * Spring Modulith. Package metadata belongs in package-info.java.
+         * Explicit module(Class) registration remains available for migration.
+         */
+        public Builder basePackage(String packageName) {
+            for (var module : PackageModuleDiscovery.discover(packageName)) {
+                if (discovered.putIfAbsent(module.descriptor().id(), module) != null)
+                    throw new ModulithException("Duplicate discovered module id: " + module.descriptor().id());
+            }
+            return this;
+        }
+
+        /** Alias of basePackage for users migrating from explicit registration. */
+        public Builder scan(String packageName) { return basePackage(packageName); }
         public <T> Builder externalService(Class<T> type,T service) {
             Objects.requireNonNull(type); Objects.requireNonNull(service);
             if(!type.isInstance(service)) throw new IllegalArgumentException("Wrong external service implementation");
@@ -122,16 +139,30 @@ public final class ModuleRuntime implements AutoCloseable {
         public Builder eventExecutor(Executor executor) { this.executor=Objects.requireNonNull(executor); return this; }
         public Builder eventJournal(EventJournal journal) { this.journal=Objects.requireNonNull(journal); return this; }
         public ModuleRuntime build() {
-            List<ModuleDescriptor> descriptors=factories.keySet().stream().map(Builder::describe).toList();
-            return new ModuleRuntime(ModuleGraph.validateAndSort(descriptors),factories,external,logger,executor,journal);
+            List<ModuleDescriptor> descriptors = new ArrayList<>();
+            Map<String, Supplier<? extends ModulithModule>> byId = new LinkedHashMap<>();
+            for (var entry : factories.entrySet()) {
+                ModuleDescriptor descriptor = describe(entry.getKey());
+                if (byId.putIfAbsent(descriptor.id(), entry.getValue()) != null)
+                    throw new ModulithException("Duplicate module id: " + descriptor.id());
+                descriptors.add(descriptor);
+            }
+            for (var item : discovered.values()) {
+                ModuleDescriptor descriptor = item.descriptor();
+                if (byId.putIfAbsent(descriptor.id(), item.factory()) != null)
+                    throw new ModulithException("Duplicate module id between explicit and discovered registration: " + descriptor.id());
+                descriptors.add(descriptor);
+            }
+            return new ModuleRuntime(ModuleGraph.validateAndSort(descriptors),byId,external,logger,executor,journal);
         }
         public ModuleRuntime start() { return build().start(); }
         private static ModuleDescriptor describe(Class<? extends ModulithModule> type) {
             ApplicationModule annotation=type.getAnnotation(ApplicationModule.class);
             if(annotation==null) throw new ModulithException("Missing @ApplicationModule: "+type.getName());
-            return new ModuleDescriptor(annotation.value(),List.of(annotation.dependencies()),type);
+            String id = annotation.value().isBlank() ? type.getSimpleName() : annotation.value();
+            return new ModuleDescriptor(id,List.of(annotation.dependencies()),type);
         }
-        private static ModulithModule create(Class<? extends ModulithModule> type) {
+        static ModulithModule create(Class<? extends ModulithModule> type) {
             try {
                 Constructor<? extends ModulithModule> ctor=type.getDeclaredConstructor(); ctor.setAccessible(true);
                 return ctor.newInstance();

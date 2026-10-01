@@ -111,7 +111,7 @@ public final class PackageModuleDiscovery {
                     ? EmptyModule::new : () -> ModuleRuntime.Builder.create(implementation);
 
             modules.add(new DiscoveredModule(
-                    new ModuleDescriptor(id, dependencies, implementation),
+                    new ModuleDescriptor(id, dependencies, implementation, packageName),
                     packageName, supplier));
         });
         return List.copyOf(modules);
