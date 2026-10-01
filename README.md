@@ -1,6 +1,6 @@
 # JavaModulith
 
-**A lightweight, platform-independent Java 21 modular application framework.** Inspired by modular-monolith architecture, with explicit module APIs, deterministic lifecycle management, a typed in-process event bus, optional SQLite, MongoDB or multi-dialect JDBC publication tracking, architecture checks and testing utilities. No Bukkit, Paper, Spring, or Minecraft runtime dependencies.
+**A lightweight, platform-independent Java 21 modular application framework.** Inspired by modular-monolith architecture, with Spring Modulith-style package-first modules, named APIs, deterministic lifecycle management, a typed in-process event bus, optional SQLite, MongoDB or multi-dialect JDBC publication tracking, architecture checks and testing utilities. No Bukkit, Paper, Spring, or Minecraft runtime dependencies.
 
 > Current development: **0.2.0-SNAPSHOT** (unreleased; v0.1.0 remains the previous release) · Java 21 · MIT · Maintained by **el211 / Oreo Studios**
 
@@ -20,63 +20,102 @@ JavaModulith is a new, separate project adapted from the *platform-independent a
 | `modulith-test` | A focused module test harness and assertion helpers |
 | `example-app` | Plain Java console application demonstrating the API |
 
-## Quick start
+## Package-first modules (Spring Modulith style)
 
-The demo runs without Minecraft or an application server:
+**Each direct child package of your application base package is a module by convention.** You no longer need to annotate or manually register one class per module. Declare dependency restrictions in `package-info.java`, and expose named interfaces with `@NamedInterface` on an API subpackage's `package-info.java`.
 
-```bash
-gradle :example-app:run
+```text
+com.example.shop/
+  ShopApplication.java            # base package + bootstrap
+  billing/
+    package-info.java             # optional @ApplicationModule
+    BillingLifecycle.java         # optional lifecycle, not the module declaration
+    payments/
+      package-info.java           # @NamedInterface("payments")
+      BillingService.java
+    internal/
+      BillingRepository.java      # implementation details
+  orders/
+    package-info.java             # @ApplicationModule(allowedDependencies = "billing::payments")
+    OrdersLifecycle.java
+  audit/                           # implicit module, no package-info needed
+    AuditLifecycle.java
 ```
 
-Create an API boundary:
+### 1. Declare a package's metadata
+
+`com/example/shop/orders/package-info.java`:
 
 ```java
-@ModuleApi("payments")
+@ApplicationModule(allowedDependencies = {"billing::payments"})
+package com.example.shop.orders;
+
+import dev.oreo.javamodulith.core.ApplicationModule;
+```
+
+The annotation is optional for a default module with no explicit dependencies. The module ID defaults to its package's last segment, for example `orders`. Override it with `@ApplicationModule("my-module")` when needed.
+
+### 2. Publish a named interface
+
+`com/example/shop/billing/payments/package-info.java`:
+
+```java
+@NamedInterface("payments")
+package com.example.shop.billing.payments;
+
+import dev.oreo.javamodulith.core.NamedInterface;
+```
+
+`com/example/shop/billing/payments/BillingService.java`:
+
+```java
+package com.example.shop.billing.payments;
+
 public interface BillingService {
     long balance(String customer);
 }
 ```
 
-Publish it from the owning module:
+An optional lifecycle class, residing in `billing`, can publish the service through `ModuleContext`:
 
 ```java
-@ApplicationModule("billing")
-public final class BillingModule implements ModulithModule, BillingService {
+package com.example.shop.billing;
+
+@ModuleEntrypoint
+public final class BillingLifecycle implements ModulithModule, BillingService {
     @Override
     public void start(ModuleContext context) {
         context.services().publish(BillingService.class, this);
     }
 
-    @Override public long balance(String customer) { return 100; }
+    @Override public long balance(String customer) { return 100L; }
 }
 ```
 
-Consume only the named API:
+A module may contain **no** `ModulithModule` at all: it still participates in the package dependency graph and uses a no-op lifecycle. If there is precisely one concrete `ModulithModule`, it is selected automatically. For multiple candidates, explicitly mark one with `@ModuleEntrypoint`.
+
+### 3. Bootstrap from the base package
 
 ```java
-@ApplicationModule(value = "orders", dependencies = "billing::payments")
-public final class OrdersModule implements ModulithModule {
-    @Override
-    public void start(ModuleContext context) {
-        BillingService billing = context.services().require(BillingService.class);
-        System.out.println(billing.balance("alice"));
-    }
-}
-```
-
-Bootstrap modules with explicit registration (no package scanning or hidden classpath magic):
-
-```java
-try (ModuleRuntime app = ModuleRuntime.builder()
-        .module(OrdersModule.class)
-        .module(BillingModule.class)
+try (var runtime = ModuleRuntime.builder()
+        .basePackage("com.example.shop")
         .start()) {
-    System.out.println(app.diagnostics());
-    System.out.println(app.graphMermaid());
+    System.out.println(runtime.graphMermaid());
+    System.out.println(runtime.diagnostics());
 }
 ```
 
-Modules start in dependency order and stop in reverse order. Module factories are supported with `module(MyModule.class, () -> new MyModule(...))`; use `externalService(MyInterface.class, instance)` to inject host-provided facilities and `context.external(MyInterface.class)` to access them.
+Equivalent shortcut:
+
+```java
+var runtime = ModuleRuntime.scan("com.example.shop").start();
+```
+
+The scanner discovers direct child packages from compiled classes in ordinary directories or JARs. It starts lifecycle entrypoints in dependency order and stops them in reverse order. It does not require Spring, Bukkit or a DI container. Constructors can be supplied through explicit module factories for legacy class modules.
+
+**Migration:** the old `@ApplicationModule` on a concrete class and `builder().module(MyModule.class)` are still supported for existing projects. New applications should use package declarations and `basePackage(...)`.
+
+**Boundary scope in 0.2.0-SNAPSHOT:** dependency graph validation and named service access checks operate at runtime; annotation processing validates declarations and cycles in compiled source. This is not yet a whole-program replacement for Spring Modulith/ArchUnit's complete Java-reference verification.
 
 ## Events
 
@@ -96,7 +135,7 @@ app.events().publish(new OrderPlaced("alice", 20));
 app.events().publishAsync(new OrderPlaced("bob", 15));
 ```
 
-Modules own the subscriptions and resources they register using `context.lifecycle()`, so registrations are released on shutdown and after failed starts. In-flight async handlers are **not** forcibly cancelled during shutdown; coordinate your executor appropriately.
+Lifecycle entrypoints own the subscriptions and resources they register using `context.lifecycle()`, so registrations are released on shutdown and after failed starts. In-flight async handlers are **not** forcibly cancelled during shutdown; coordinate your executor appropriately.
 
 ## Optional persistent event journal
 
@@ -104,7 +143,7 @@ Modules own the subscriptions and resources they register using `context.lifecyc
 EventJournal journal = new SqliteEventJournal(Path.of("data/events.db"));
 try (var app = ModuleRuntime.builder()
         .eventJournal(journal)
-        .module(BillingModule.class)
+        .basePackage("com.example.shop")
         .start()) {
     System.out.println(app.diagnostics().incompletePublications());
 }
@@ -175,15 +214,16 @@ The core JDBC functionality is covered by SQLite tests on every build, plus opti
 
 ## Dependency boundaries and validation
 
-- A module declares full-module dependencies (`"billing"`) or named API dependencies (`"billing::payments"`).
-- `ModuleRuntime` rejects duplicate module IDs, missing dependencies, cycles and undeclared cross-module service access.
-- `modulith-processor` validates source annotations, duplicate IDs, invalid selectors and cycles among source modules compiled together. Runtime validates the complete assembled graph. The processor is *not* a whole-program static reference checker.
-- `@ModuleApi` requires a public annotated interface for published service contracts.
-- `graphMermaid()` and `graphGraphviz()` generate dependency visualization sources.
+- Modules are identified by **direct child packages** of the configured base package. Package-level `@ApplicationModule` supports `allowedDependencies = {"billing::payments"}`; `dependencies` remains a legacy alias.
+- Named APIs are declared with `@NamedInterface("payments")` on an API subpackage's `package-info.java` (or on an interface). A public interface in a module's root package is an unnamed default API.
+- Internal subpackages cannot publish contracts unless explicitly exposed as named APIs (or marked with the backward-compatible `@ModuleApi`).
+- The runtime rejects unknown dependencies, duplicate module IDs, circular dependencies and undeclared cross-module service access.
+- The annotation processor validates package/type declarations, duplicate explicit IDs, selector syntax, named interfaces and cycles among annotated source declarations. A full static inspection of all class/method bytecode references is not yet implemented.
+- `graphMermaid()` and `graphGraphviz()` export the discovered package dependency graph.
 
 ## Testing
 
-The `modulith-test` module can start a target module and its transitive dependencies:
+The `modulith-test` module still supports the legacy class-based target API during the package-first transition:
 
 ```java
 try (var harness = ModuleTestHarness.builder()
@@ -220,7 +260,7 @@ dispatcher.submit(() -> texture.getWidth())
     .thenAccept(width -> System.out.println("Texture width: " + width));
 
 ModuleRuntime runtime = ModuleRuntime.builder()
-    .module(GameplayModule.class)
+    .basePackage("com.example.game")
     .externalService(LibGdxDispatcher.class, dispatcher)
     .start();
 ```
