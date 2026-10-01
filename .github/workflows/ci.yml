@@ -18,6 +18,8 @@ jobs:
         with:
           gradle-version: '8.14.3'
       - run: gradle clean build publishToMavenLocal --no-daemon
+      - name: Run package-first console example
+        run: gradle :example-app:run --no-daemon
 
   jdbc-integration:
     runs-on: ubuntu-latest

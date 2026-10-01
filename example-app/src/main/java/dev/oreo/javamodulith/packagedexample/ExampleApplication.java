@@ -5,7 +5,7 @@ import dev.oreo.javamodulith.packagedexample.orders.OrderPlaced;
 
 /**
  * Spring-style package modules: discovers all direct subpackages by convention.
- * @ApplicationModule belongs in package-info.java, not on the lifecycle class.
+ * The module annotation belongs in package-info.java, not on the lifecycle class.
  */
 public final class ExampleApplication {
     public static void main(String[] args) {
