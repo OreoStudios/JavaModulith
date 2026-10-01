@@ -11,16 +11,16 @@ import javax.sql.DataSource;
 
 /**
  * Minimal DataSource for standalone apps and examples.
- * A production application may instead pass HikariCP or any other DataSource.
+ * A production application may instead pass HikariCP or another pooled DataSource.
  *
- * Requires the matching database JDBC driver on the application's runtime classpath.
+ * Requires the matching JDBC driver on the application's runtime classpath.
+ * DataSource logging and login timeout methods delegate to the JVM-global
+ * DriverManager settings, not to a private connection pool.
  */
 public final class DriverManagerDataSource implements DataSource {
     private final String url;
     private final String username;
     private final String password;
-    private volatile PrintWriter logWriter;
-    private volatile int loginTimeout;
 
     public DriverManagerDataSource(String url) {
         this(url, null, null);
@@ -33,24 +33,19 @@ public final class DriverManagerDataSource implements DataSource {
         this.password = password;
     }
 
-    @Override
-    public Connection getConnection() throws SQLException {
+    @Override public Connection getConnection() throws SQLException {
         return username == null ? DriverManager.getConnection(url)
                 : DriverManager.getConnection(url, username, password);
     }
 
-    @Override
-    public Connection getConnection(String user, String password) throws SQLException {
-        return DriverManager.getConnection(url, user, password);
+    @Override public Connection getConnection(String user, String pass) throws SQLException {
+        return DriverManager.getConnection(url, user, pass);
     }
 
-    @Override public PrintWriter getLogWriter() { return logWriter; }
-    @Override public void setLogWriter(PrintWriter writer) { logWriter = writer; }
-    @Override public void setLoginTimeout(int timeout) {
-        if (timeout < 0) throw new IllegalArgumentException("timeout must not be negative");
-        loginTimeout = timeout;
-    }
-    @Override public int getLoginTimeout() { return loginTimeout; }
+    @Override public PrintWriter getLogWriter() { return DriverManager.getLogWriter(); }
+    @Override public void setLogWriter(PrintWriter writer) { DriverManager.setLogWriter(writer); }
+    @Override public void setLoginTimeout(int seconds) { DriverManager.setLoginTimeout(seconds); }
+    @Override public int getLoginTimeout() { return DriverManager.getLoginTimeout(); }
     @Override public Logger getParentLogger() throws SQLFeatureNotSupportedException {
         throw new SQLFeatureNotSupportedException("No parent logger");
     }
