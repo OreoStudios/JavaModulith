@@ -135,16 +135,17 @@ try (var harness = ModuleTestHarness.builder()
 gradle clean build
 ```
 
-## Publishing to your own new GitHub repository
+## Game-engine compatibility
 
-This ZIP deliberately contains no `.git` directory or Minecraft plugin metadata.
+The core is pure Java 21, so it can organise gameplay systems in **LibGDX desktop** and **jMonkeyEngine** applications (for example, combat, inventory, economy, quests and networking). Pass game-engine facilities through `externalService(...)` when needed. Engine-specific render/update-thread dispatch is still the host application's responsibility: use `Gdx.app.postRunnable(...)` or the relevant jMonkeyEngine `enqueue(...)` method. Dedicated game-engine adapters are not included in v0.1.0. Because Java 21 is required, non-desktop LibGDX targets (such as GWT/Android) need separate compatibility evaluation.
 
-1. Create a GitHub repository (suggested name: `JavaModulith`).
-2. Change GitHub URLs in `README.md` and `build.gradle.kts` if you choose a different name.
-3. Push the files, then create the version tag `v0.1.0`.
-4. The included `jitpack.yml` runs `gradle clean build publishToMavenLocal --no-daemon` on JDK 21.
+## GitHub and JitPack
 
-Once JitPack successfully builds that tag, multi-module coordinates for a repo named `el211/JavaModulith` are:
+Repository: [el211/JavaModulith](https://github.com/el211/JavaModulith)
+
+The included `jitpack.yml` uses Java 21 and runs `gradle clean build publishToMavenLocal --no-daemon`. Create the Git tag `v0.1.0` from a verified release commit to enable JitPack's tagged build.
+
+After JitPack successfully builds the tag, the multi-module coordinates are:
 
 ```kotlin
 repositories { mavenCentral(); maven("https://jitpack.io") }
@@ -158,7 +159,7 @@ dependencies {
 }
 ```
 
-**JitPack coordinates are examples until you create the repository/tag and its build succeeds.** For JitPack, `gradle.properties` uses the repository-specific group `com.github.el211.JavaModulith`. Update it if you choose a different owner/repository. Non-JitPack local publications default to version `0.1.0`, while JitPack uses the Git tag version.
+**The following JitPack coordinates require a `v0.1.0` tag and a successful JitPack build.** For JitPack, `gradle.properties` uses the repository-specific group `com.github.el211.JavaModulith`. Update it if you choose a different owner/repository. Non-JitPack local publications default to version `0.1.0`, while JitPack uses the Git tag version.
 
 ## License
 
