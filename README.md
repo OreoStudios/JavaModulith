@@ -1,6 +1,6 @@
 # JavaModulith
 
-**A lightweight, platform-independent Java 21 modular application framework.** Inspired by modular-monolith architecture, with explicit module APIs, deterministic lifecycle management, a typed in-process event bus, optional SQLite or MongoDB publication tracking, architecture checks and testing utilities. No Bukkit, Paper, Spring, or Minecraft runtime dependencies.
+**A lightweight, platform-independent Java 21 modular application framework.** Inspired by modular-monolith architecture, with explicit module APIs, deterministic lifecycle management, a typed in-process event bus, optional SQLite, MongoDB or multi-dialect JDBC publication tracking, architecture checks and testing utilities. No Bukkit, Paper, Spring, or Minecraft runtime dependencies.
 
 > Current development: **0.2.0-SNAPSHOT** (unreleased; v0.1.0 remains the previous release) · Java 21 · MIT · Maintained by **el211 / Oreo Studios**
 
@@ -12,7 +12,8 @@ JavaModulith is a new, separate project adapted from the *platform-independent a
 | --- | --- |
 | `modulith-core` | Generic runtime, services, event bus, dependency graph and diagnostics |
 | `modulith-processor` | Compile-time declaration validation (`@ApplicationModule`, `@ModuleApi`) |
-| `modulith-events-sqlite` | Optional SQLite implementation of the `EventJournal` SPI |
+| `modulith-events-sqlite` | Original SQLite `EventJournal` adapter, retained for compatibility |
+| `modulith-events-jdbc` | One portable JDBC `EventJournal` for PostgreSQL, MariaDB, MySQL and SQLite |
 | `modulith-events-mongodb` | Optional MongoDB synchronous-driver implementation of `EventJournal` |
 | `modulith-libgdx` | Queue work safely onto the LibGDX render thread |
 | `modulith-jme` | Queue work safely onto jMonkeyEngine's update/render thread |
@@ -110,6 +111,67 @@ try (var app = ModuleRuntime.builder()
 ```
 
 `modulith-events-sqlite` depends on the standard Java SQL API at compile time and requires the `sqlite-jdbc` dependency at runtime (declared as `runtimeOnly`). It records per-listener publication state (`PENDING`, `COMPLETED`, `FAILED`) and allows querying incomplete publications. **Automatic retry/replay is not implemented**; recovery remains the host application's responsibility. The default payload representation uses `Object.toString()` and is not intended as a reversible serializer.
+
+## SQL database support: PostgreSQL, MariaDB, MySQL and SQLite (0.2.0-SNAPSHOT)
+
+The optional `modulith-events-jdbc` module implements **one shared `EventJournal`** using the standard `javax.sql.DataSource` API. Select a `JdbcDialect` for schema creation; all publication operations use the same prepared-statement implementation.
+
+| Dialect | JDBC URL prefix | Runtime driver |
+| --- | --- | --- |
+| `JdbcDialect.POSTGRESQL` | `jdbc:postgresql:` | `org.postgresql:postgresql` |
+| `JdbcDialect.MARIADB` | `jdbc:mariadb:` | `org.mariadb.jdbc:mariadb-java-client` |
+| `JdbcDialect.MYSQL` | `jdbc:mysql:` | `com.mysql:mysql-connector-j` |
+| `JdbcDialect.SQLITE` | `jdbc:sqlite:` | `org.xerial:sqlite-jdbc` |
+
+In this repository:
+
+```kotlin
+dependencies {
+    implementation(project(":modulith-events-jdbc"))
+    runtimeOnly("org.postgresql:postgresql:42.7.5") // Choose ONE matching driver.
+    // SQLite: runtimeOnly("org.xerial:sqlite-jdbc:3.50.3.0")
+    // MariaDB: runtimeOnly("org.mariadb.jdbc:mariadb-java-client:3.4.1")
+    // MySQL: runtimeOnly("com.mysql:mysql-connector-j:9.2.0")
+}
+```
+
+After a future tagged release successfully builds through JitPack, the library artifact will be `com.github.el211.JavaModulith:modulith-events-jdbc:<release-tag>`. The module intentionally does **not** transitively bundle all four JDBC drivers.
+
+```java
+import dev.oreo.javamodulith.jdbc.DriverManagerDataSource;
+import dev.oreo.javamodulith.jdbc.JdbcDialect;
+import dev.oreo.javamodulith.jdbc.JdbcEventJournal;
+
+// For production, a pooled DataSource (such as HikariCP) is also supported.
+var source = new DriverManagerDataSource(
+    "jdbc:postgresql://localhost:5432/my_app", "app_user", "password"
+);
+var journal = new JdbcEventJournal(source, JdbcDialect.POSTGRESQL);
+
+try (var runtime = ModuleRuntime.builder()
+        .eventJournal(journal)
+        .module(BillingModule.class)
+        .start()) {
+    // Events published by the runtime are recorded per listener.
+    System.out.println(runtime.diagnostics().incompletePublications());
+    journal.incomplete().forEach(System.out::println);
+}
+```
+
+Change only the JDBC URL, driver dependency and dialect for MariaDB, MySQL or SQLite. For SQLite, for example:
+
+```java
+var journal = new JdbcEventJournal(
+    new DriverManagerDataSource("jdbc:sqlite:events.db"),
+    JdbcDialect.SQLITE
+);
+```
+
+The journal automatically creates `modulith_event_publications` and its status/time index if absent. You can pass a custom unqualified table name as the third constructor argument. Tables store IDs, event/listener identifiers, payload text, `PENDING`/`COMPLETED`/`FAILED` state, UTC epoch-millisecond timestamps and error text. You may query `incomplete()` or explicitly purge older successful deliveries with `deleteCompletedBefore(Instant)`. SQL identifiers are validated, and SQL values use bound parameters.
+
+**Important:** this is synchronous, independent-connection publication tracking, *not* a transaction-bound application outbox. The supplied `DataSource` must return auto-commit connections. The library does not automatically retry/replay failed events, serialize objects reversibly, or join caller-owned transactions. Run database I/O off LibGDX/jME render threads. The original `modulith-events-sqlite` module remains available; existing SQLite journal data is not silently migrated to the new JDBC table.
+
+The core JDBC functionality is covered by SQLite tests on every build, plus optional live PostgreSQL, MariaDB and MySQL integration tests in GitHub Actions.
 
 ## Dependency boundaries and validation
 

@@ -17,4 +17,64 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.14.3'
-      - run: gradle clean build publishToMavenLocal
+      - run: gradle clean build publishToMavenLocal --no-daemon
+
+  jdbc-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: modulith
+          POSTGRES_PASSWORD: modulith
+          POSTGRES_DB: modulith
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U modulith -d modulith"
+          --health-interval=10s --health-timeout=5s --health-retries=15
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root_test
+          MYSQL_DATABASE: modulith
+          MYSQL_USER: modulith
+          MYSQL_PASSWORD: modulith
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_test"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root_test
+          MARIADB_DATABASE: modulith
+          MARIADB_USER: modulith
+          MARIADB_PASSWORD: modulith
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Verify all four JDBC dialects against actual databases
+        run: gradle :modulith-events-jdbc:test --rerun-tasks --no-daemon
+        env:
+          POSTGRES_JDBC_URL: jdbc:postgresql://127.0.0.1:5432/modulith
+          POSTGRES_JDBC_USER: modulith
+          POSTGRES_JDBC_PASSWORD: modulith
+          MYSQL_JDBC_URL: jdbc:mysql://127.0.0.1:3306/modulith?allowPublicKeyRetrieval=true&useSSL=false
+          MYSQL_JDBC_USER: modulith
+          MYSQL_JDBC_PASSWORD: modulith
+          MARIADB_JDBC_URL: jdbc:mariadb://127.0.0.1:3307/modulith
+          MARIADB_JDBC_USER: modulith
+          MARIADB_JDBC_PASSWORD: modulith
