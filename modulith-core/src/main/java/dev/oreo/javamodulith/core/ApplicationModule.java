@@ -1,8 +1,25 @@
 package dev.oreo.javamodulith.core;
-import java.lang.annotation.*;
-/** Defines one internal application module. dependencies accepts id or id::namedApi. */
-@Documented @Retention(RetentionPolicy.RUNTIME) @Target(ElementType.TYPE)
+
+import java.lang.annotation.Documented;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+/**
+ * Declares metadata for an application module.
+ *
+ * <p>Preferred: annotate the module's root package in package-info.java.
+ * Each direct subpackage of the base package is a module by convention even
+ * without this annotation. Type-level usage remains supported for migration.</p>
+ *
+ * <p>Examples: dependencies = {"billing"} or {"billing::payments"}.</p>
+ */
+@Documented
+@Retention(RetentionPolicy.RUNTIME)
+@Target({ElementType.PACKAGE, ElementType.TYPE})
 public @interface ApplicationModule {
-    String value();
+    /** Optional override of the package's last segment. */
+    String value() default "";
     String[] dependencies() default {};
 }
