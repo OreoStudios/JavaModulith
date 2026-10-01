@@ -3,6 +3,7 @@ include(
     "modulith-core",
     "modulith-processor",
     "modulith-events-sqlite",
+    "modulith-events-jdbc",
     "modulith-events-mongodb",
     "modulith-libgdx",
     "modulith-jme",
