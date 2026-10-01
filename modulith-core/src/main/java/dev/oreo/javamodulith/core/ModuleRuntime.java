@@ -105,6 +105,7 @@ public final class ModuleRuntime implements AutoCloseable {
     public static final class Builder {
         private final LinkedHashMap<Class<? extends ModulithModule>,Supplier<? extends ModulithModule>> factories = new LinkedHashMap<>();
         private final LinkedHashMap<String,PackageModuleDiscovery.DiscoveredModule> discovered = new LinkedHashMap<>();
+        private String targetModule;
         private final Map<Class<?>,Object> external = new LinkedHashMap<>();
         private Logger logger=Logger.getLogger("JavaModulith");
         private Executor executor=ForkJoinPool.commonPool();
@@ -132,6 +133,16 @@ public final class ModuleRuntime implements AutoCloseable {
 
         /** Alias of basePackage for users migrating from explicit registration. */
         public Builder scan(String packageName) { return basePackage(packageName); }
+
+        /**
+         * Limit startup to the selected module and its transitive dependencies.
+         * Useful for package-focused tests. All discovered modules are still
+         * validated before selecting the lifecycle subset.
+         */
+        public Builder targetModule(String moduleId) {
+            this.targetModule = Objects.requireNonNull(moduleId, "moduleId");
+            return this;
+        }
         public <T> Builder externalService(Class<T> type,T service) {
             Objects.requireNonNull(type); Objects.requireNonNull(service);
             if(!type.isInstance(service)) throw new IllegalArgumentException("Wrong external service implementation");
@@ -155,9 +166,28 @@ public final class ModuleRuntime implements AutoCloseable {
                     throw new ModulithException("Duplicate module id between explicit and discovered registration: " + descriptor.id());
                 descriptors.add(descriptor);
             }
-            return new ModuleRuntime(ModuleGraph.validateAndSort(descriptors),byId,external,logger,executor,journal);
+            List<ModuleDescriptor> ordered = ModuleGraph.validateAndSort(descriptors);
+            if (targetModule != null) {
+                Map<String,ModuleDescriptor> indexed = new LinkedHashMap<>();
+                for (ModuleDescriptor descriptor : ordered) indexed.put(descriptor.id(), descriptor);
+                if (!indexed.containsKey(targetModule))
+                    throw new ModuleDependencyException("Unknown target module: " + targetModule);
+                Set<String> needed = new LinkedHashSet<>();
+                includeTransitive(targetModule, indexed, needed);
+                ordered = ordered.stream().filter(module -> needed.contains(module.id())).toList();
+            }
+            return new ModuleRuntime(ordered,byId,external,logger,executor,journal);
         }
         public ModuleRuntime start() { return build().start(); }
+
+        private static void includeTransitive(
+                String id, Map<String,ModuleDescriptor> indexed, Set<String> needed
+        ) {
+            if (!needed.add(id)) return;
+            for (ModuleDependency dep : indexed.get(id).parsedDependencies()) {
+                includeTransitive(dep.moduleId(), indexed, needed);
+            }
+        }
         private static ModuleDescriptor describe(Class<? extends ModulithModule> type) {
             ApplicationModule annotation=type.getAnnotation(ApplicationModule.class);
             if(annotation==null) throw new ModulithException("Missing @ApplicationModule: "+type.getName());

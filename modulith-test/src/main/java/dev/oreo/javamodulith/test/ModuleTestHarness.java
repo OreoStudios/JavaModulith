@@ -20,16 +20,30 @@ public final class ModuleTestHarness implements AutoCloseable {
     public static final class Builder {
         private final LinkedHashMap<String,Class<? extends ModulithModule>> classes=new LinkedHashMap<>();
         private String target;
+        private String basePackage;
         public Builder modules(Collection<Class<? extends ModulithModule>> input) {
             for (Class<? extends ModulithModule> type : input) {
                 ApplicationModule annotation=type.getAnnotation(ApplicationModule.class);
                 if(annotation==null) throw new ModulithException("Missing @ApplicationModule: "+type.getName());
-                if(classes.putIfAbsent(annotation.value(),type)!=null) throw new ModulithException("Duplicate module ID: "+annotation.value());
+                String id=annotation.value().isBlank()?type.getSimpleName():annotation.value();
+                if(classes.putIfAbsent(id,type)!=null) throw new ModulithException("Duplicate module ID: "+id);
             }
             return this;
         }
         public Builder target(String target) { this.target=Objects.requireNonNull(target); return this; }
+
+        /** Package-first focused tests: automatically includes the target's transitive dependencies. */
+        public Builder basePackage(String basePackage) {
+            this.basePackage=Objects.requireNonNull(basePackage);
+            return this;
+        }
         public ModuleTestHarness start() {
+            if (basePackage != null) {
+                if (!classes.isEmpty()) throw new IllegalStateException("Choose package scanning OR legacy class registrations");
+                if (target == null) throw new IllegalArgumentException("Set target(moduleId) for a focused package test");
+                return new ModuleTestHarness(
+                    ModuleRuntime.builder().basePackage(basePackage).targetModule(target).start());
+            }
             if(!classes.containsKey(target)) throw new IllegalArgumentException("Missing target: "+target);
             LinkedHashSet<String> needed=new LinkedHashSet<>();
             collect(target,needed);
@@ -41,7 +55,10 @@ public final class ModuleTestHarness implements AutoCloseable {
             if(!needed.add(id)) return;
             Class<? extends ModulithModule> type=classes.get(id);
             if(type==null) throw new ModulithException("Unknown dependency: "+id);
-            for(String dependency:type.getAnnotation(ApplicationModule.class).dependencies())
+            ApplicationModule annotation = type.getAnnotation(ApplicationModule.class);
+            String[] deps = annotation.allowedDependencies().length == 0
+                    ? annotation.dependencies() : annotation.allowedDependencies();
+            for(String dependency: deps)
                 collect(ModuleDependency.parse(dependency).moduleId(),needed);
         }
     }
