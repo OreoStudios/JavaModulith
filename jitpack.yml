@@ -4,4 +4,4 @@ before_install:
   - sdk install gradle 8.14.3
   - sdk use gradle 8.14.3
 install:
-  - gradle clean build publishToMavenLocal --no-daemon
+  - gradle clean publishToMavenLocal -x test --no-daemon --no-parallel -Dorg.gradle.workers.max=1 "-Dorg.gradle.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=512m"
