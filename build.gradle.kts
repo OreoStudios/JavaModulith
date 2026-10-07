@@ -10,7 +10,7 @@ allprojects {
 subprojects {
     apply(plugin = "java-library")
     extensions.configure<JavaPluginExtension> {
-        toolchain.languageVersion.set(JavaLanguageVersion.of(21))
+        // Compile with the running JDK targeting Java 21 bytecode (no separate toolchain needed).
         withSourcesJar()
         withJavadocJar()
     }
@@ -35,9 +35,19 @@ subprojects {
                             url.set("https://opensource.org/license/mit")
                         } }
                         scm {
-                            url.set("https://github.com/el211/JavaModulith")
-                            connection.set("scm:git:https://github.com/el211/JavaModulith.git")
+                            url.set("https://github.com/OreoStudios/JavaModulith")
+                            connection.set("scm:git:https://github.com/OreoStudios/JavaModulith.git")
                         }
+                    }
+                }
+            }
+            repositories {
+                maven {
+                    name = "oreostudioslib"
+                    url = uri("https://maven.oreostudios.fr/oreostudioslib")
+                    credentials {
+                        username = System.getenv("OREO_REPO_USER")
+                        password = System.getenv("OREO_REPO_PASS")
                     }
                 }
             }
